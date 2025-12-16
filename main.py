@@ -3,77 +3,94 @@ import glob
 import time
 import threading
 import subprocess
+import requests
+import sys
+from bs4 import BeautifulSoup
 from fastapi import FastAPI
 from fastapi.responses import StreamingResponse
 
+# Disable output buffering
+sys.stdout.flush()
+sys.stderr.flush()
+
 # ---------- CONFIG ----------
-MEGA_FOLDER_URL = "https://mega.nz/folder/Hxo1RaTL#qojarvoO1mODsQIdc7V2mQ"
+AUDIO_SITE_URL = "https://scd-1.pages.dev/"
 MUSIC_DIR = "/app/music"
-TMP_DIR = "/app/music_tmp"
 SYNC_INTERVAL = 24 * 3600  # seconds
 STREAM_CHUNK_SIZE = 4096
 
 # Make sure directories exist
 os.makedirs(MUSIC_DIR, exist_ok=True)
-os.makedirs(TMP_DIR, exist_ok=True)
 
 app = FastAPI()
 CURRENT_TRACK = None
 FFMPEG_PROCESS = None
+AUDIO_TRACKS = []
 
-# ---------- MEGA SYNC ----------
-def mega_sync():
+# ---------- FETCH AUDIO TRACKS ----------
+def fetch_audio_tracks():
     """
-    Downloads/updates public MEGA folder every SYNC_INTERVAL seconds.
-    Uses a temporary folder to avoid breaking currently playing tracks.
+    Fetches the list of audio tracks from the website.
     """
-    while True:
-        print("[INFO] Starting Mega sync...")
-        try:
-            # Sync to temporary folder first
-            subprocess.run([
-                "rclone", "copyurl",
-                MEGA_FOLDER_URL,
-                TMP_DIR,
-                "--update",
-                "-P"
-            ], check=True)
-            
-            # Move downloaded files to main folder atomically
-            for filename in os.listdir(TMP_DIR):
-                src = os.path.join(TMP_DIR, filename)
-                dst = os.path.join(MUSIC_DIR, filename)
-                os.replace(src, dst)
-            
-            print("[INFO] Mega sync complete!")
-        except subprocess.CalledProcessError as e:
-            print(f"[ERROR] Mega sync failed: {e}")
-        except Exception as e:
-            print(f"[ERROR] Unexpected error during Mega sync: {e}")
+    global AUDIO_TRACKS
+    try:
+        print("[INFO] Fetching audio tracks from website...")
+        response = requests.get(AUDIO_SITE_URL, timeout=10)
+        response.raise_for_status()
         
+        soup = BeautifulSoup(response.content, 'html.parser')
+        links = soup.find_all('a', href=True)
+        
+        tracks = []
+        for link in links:
+            href = link['href']
+            # Filter for audio files
+            if href.endswith('.m4a') or href.endswith('.mp3'):
+                full_url = AUDIO_SITE_URL.rstrip('/') + '/' + href.lstrip('/')
+                tracks.append(full_url)
+        
+        AUDIO_TRACKS = sorted(tracks)
+        print(f"[INFO] Found {len(AUDIO_TRACKS)} audio tracks")
+        for track in AUDIO_TRACKS[:5]:  # Print first 5
+            print(f"  - {track}")
+        if len(AUDIO_TRACKS) > 5:
+            print(f"  ... and {len(AUDIO_TRACKS) - 5} more")
+        
+    except Exception as e:
+        print(f"[ERROR] Failed to fetch tracks: {e}")
+        AUDIO_TRACKS = []
+
+# ---------- SYNC LOOP ----------
+def sync_loop():
+    """
+    Periodically fetches the list of available audio tracks.
+    """
+    fetch_audio_tracks()  # Initial fetch
+    while True:
         time.sleep(SYNC_INTERVAL)
+        fetch_audio_tracks()
 
 # ---------- RADIO LOOP ----------
 def start_radio():
     """
-    Loops through tracks in MUSIC_DIR and streams them live via FFmpeg.
+    Loops through audio tracks and streams them live via FFmpeg.
     All listeners hear the same track at the same time.
     """
     global CURRENT_TRACK, FFMPEG_PROCESS
     while True:
-        tracks = sorted(glob.glob(os.path.join(MUSIC_DIR, "*.*")))
-        if not tracks:
-            print("[WARN] No tracks found. Waiting 30 seconds...")
+        if not AUDIO_TRACKS:
+            print("[WARN] No tracks available. Waiting 30 seconds...")
             time.sleep(30)
             continue
         
-        for track in tracks:
-            CURRENT_TRACK = track
-            print(f"[INFO] Now playing: {track}")
+        for track_url in AUDIO_TRACKS:
+            CURRENT_TRACK = track_url
+            track_name = track_url.split('/')[-1]
+            print(f"[INFO] Now playing: {track_name}")
             
             try:
                 FFMPEG_PROCESS = subprocess.Popen([
-                    "ffmpeg", "-re", "-i", track,
+                    "ffmpeg", "-re", "-i", track_url,
                     "-f", "mp3", "-b:a", "128k",
                     "pipe:1"
                 ], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
@@ -85,6 +102,13 @@ def start_radio():
                 FFMPEG_PROCESS = None
 
 # ---------- STREAM ENDPOINT ----------
+@app.get("/")
+def root():
+    """
+    Root endpoint with basic status.
+    """
+    return {"status": "running", "endpoint": "/stream"}
+
 @app.get("/stream")
 def stream():
     """
@@ -108,5 +132,5 @@ def stream():
     return StreamingResponse(audio_generator(), media_type="audio/mpeg")
 
 # ---------- START THREADS ----------
-threading.Thread(target=mega_sync, daemon=True).start()
+threading.Thread(target=sync_loop, daemon=True).start()
 threading.Thread(target=start_radio, daemon=True).start()

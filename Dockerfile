@@ -8,7 +8,7 @@ RUN apt-get update && \
 
 WORKDIR /app
 COPY . .
-
+COPY rclone.conf .config/rclone/rclone.conf
 # Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
