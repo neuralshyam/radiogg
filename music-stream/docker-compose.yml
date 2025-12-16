@@ -1,0 +1,14 @@
+version: "3.8"
+
+services:
+  music-stream:
+    build: .
+    container_name: music-stream
+    volumes:
+      - ./music:/app/music
+      - ./hls:/app/hls
+      - ./icecast.xml:/etc/icecast2/icecast.xml
+      - ./var/log:/var/log
+    ports:
+      - "0.0.0.0:8000:8000"
+      - "0.0.0.0:8080:8080"
