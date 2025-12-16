@@ -7,7 +7,7 @@ import requests
 import sys
 from bs4 import BeautifulSoup
 from fastapi import FastAPI
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, HTMLResponse
 
 # Disable output buffering
 sys.stdout.flush()
@@ -105,9 +105,84 @@ def start_radio():
 @app.get("/")
 def root():
     """
-    Root endpoint with basic status.
+    Root endpoint showing currently playing track and embedded audio player.
     """
-    return {"status": "running", "endpoint": "/stream"}
+    track_name = CURRENT_TRACK.split('/')[-1] if CURRENT_TRACK else "Loading..."
+    html_content = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>RadioGG - Live Stream</title>
+        <style>
+            body {{
+                font-family: Arial, sans-serif;
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                min-height: 100vh;
+                margin: 0;
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            }}
+            .container {{
+                background: white;
+                padding: 40px;
+                border-radius: 10px;
+                box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+                text-align: center;
+                max-width: 500px;
+            }}
+            h1 {{
+                color: #333;
+                margin: 0 0 10px 0;
+            }}
+            .now-playing {{
+                color: #666;
+                font-size: 14px;
+                margin-bottom: 30px;
+                padding: 15px;
+                background: #f5f5f5;
+                border-radius: 5px;
+                word-break: break-all;
+            }}
+            .track-name {{
+                color: #667eea;
+                font-weight: bold;
+                font-size: 16px;
+            }}
+            audio {{
+                width: 100%;
+                margin: 20px 0;
+            }}
+            .info {{
+                color: #999;
+                font-size: 12px;
+                margin-top: 20px;
+            }}
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <h1>🎵 RadioGG</h1>
+            <p style="color: #666;">Live Streaming Radio Station</p>
+            
+            <div class="now-playing">
+                <div>Now Playing:</div>
+                <div class="track-name">{track_name}</div>
+            </div>
+            
+            <audio controls autoplay>
+                <source src="/stream" type="audio/mpeg">
+                Your browser does not support the audio element.
+            </audio>
+            
+            <div class="info">
+                <p>This is a continuous live stream that loops through all available tracks.</p>
+            </div>
+        </div>
+    </body>
+    </html>
+    """
+    return HTMLResponse(content=html_content)
 
 @app.get("/stream")
 def stream():
