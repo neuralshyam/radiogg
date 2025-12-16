@@ -1,0 +1,41 @@
+<!doctype html>
+<html>
+<body>
+<h3 id="now">Loading…</h3>
+<audio id="audio" controls></audio>
+
+<script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+<script>
+(async () => {
+  const meta = await fetch('schedule.json').then(r => r.json());
+
+  const now = Math.floor(Date.now() / 1000);
+  const offset = (now - meta.radioStart) % meta.totalDuration;
+
+  const audio = document.getElementById('audio');
+  const hls = new Hls();
+
+  hls.loadSource('radio.m3u8');
+  hls.attachMedia(audio);
+
+  hls.on(Hls.Events.MANIFEST_PARSED, () => {
+    audio.currentTime = offset;
+    audio.play();
+  });
+
+  function updateNowPlaying() {
+    const t = audio.currentTime;
+    const track = meta.tracks.find(
+      x => t >= x.start && t < x.start + x.duration
+    );
+    if (track) {
+      document.getElementById('now').textContent =
+        `Now Playing: ${track.title}`;
+    }
+  }
+
+  audio.addEventListener('timeupdate', updateNowPlaying);
+})();
+</script>
+</body>
+</html>

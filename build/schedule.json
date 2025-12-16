@@ -1,0 +1,32 @@
+{
+  "segmentDuration": 15,
+  "radioStart": 1700000000,
+  "totalDuration": 2921,
+  "tracks": [
+    {
+      "title": "A Real Friend from Vrindavan",
+      "start": 0,
+      "duration": 472
+    },
+    {
+      "title": "Brahma Muhurta",
+      "start": 472,
+      "duration": 271
+    },
+    {
+      "title": "Gift from One Vaisnava to Another",
+      "start": 743,
+      "duration": 1138
+    },
+    {
+      "title": "Mellows of a Mendicant",
+      "start": 1881,
+      "duration": 615
+    },
+    {
+      "title": "Sri Nrismha Pranama",
+      "start": 2496,
+      "duration": 425
+    }
+  ]
+}
