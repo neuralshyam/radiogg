@@ -15,7 +15,8 @@ sys.stderr.flush()
 
 # ---------- CONFIG ----------
 AUDIO_SITE_URL = "https://scd-1.pages.dev/"
-MUSIC_DIR = "/app/music"
+# Use local workspace music folder to avoid permission issues in some containers
+MUSIC_DIR = "./music"
 SYNC_INTERVAL = 24 * 3600  # seconds
 STREAM_CHUNK_SIZE = 4096
 
@@ -107,81 +108,98 @@ def root():
     """
     Root endpoint showing currently playing track and embedded audio player.
     """
+    # Serve a responsive Tailwind-based page that polls now-playing
     track_name = CURRENT_TRACK.split('/')[-1] if CURRENT_TRACK else "Loading..."
-    html_content = f"""
+    html_content = """
     <!DOCTYPE html>
-    <html>
+    <html lang="en">
     <head>
-        <title>RadioGG - Live Stream</title>
-        <style>
-            body {{
-                font-family: Arial, sans-serif;
-                display: flex;
-                justify-content: center;
-                align-items: center;
-                min-height: 100vh;
-                margin: 0;
-                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            }}
-            .container {{
-                background: white;
-                padding: 40px;
-                border-radius: 10px;
-                box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
-                text-align: center;
-                max-width: 500px;
-            }}
-            h1 {{
-                color: #333;
-                margin: 0 0 10px 0;
-            }}
-            .now-playing {{
-                color: #666;
-                font-size: 14px;
-                margin-bottom: 30px;
-                padding: 15px;
-                background: #f5f5f5;
-                border-radius: 5px;
-                word-break: break-all;
-            }}
-            .track-name {{
-                color: #667eea;
-                font-weight: bold;
-                font-size: 16px;
-            }}
-            audio {{
-                width: 100%;
-                margin: 20px 0;
-            }}
-            .info {{
-                color: #999;
-                font-size: 12px;
-                margin-top: 20px;
-            }}
-        </style>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>RadioGG — Live</title>
+        <script src="https://cdn.tailwindcss.com"></script>
     </head>
-    <body>
-        <div class="container">
-            <h1>🎵 RadioGG</h1>
-            <p style="color: #666;">Live Streaming Radio Station</p>
-            
-            <div class="now-playing">
-                <div>Now Playing:</div>
-                <div class="track-name">{track_name}</div>
-            </div>
-            
-            <audio controls autoplay>
-                <source src="/stream" type="audio/mpeg">
-                Your browser does not support the audio element.
-            </audio>
-            
-            <div class="info">
-                <p>This is a continuous live stream that loops through all available tracks.</p>
+    <body class="min-h-screen bg-gradient-to-tr from-purple-600 to-indigo-500 flex items-center justify-center p-4">
+        <div class="w-full max-w-3xl bg-white/95 backdrop-blur-md rounded-xl shadow-2xl overflow-hidden">
+            <div class="p-6 md:p-8 lg:p-12">
+                <div class="flex items-center gap-4">
+                    <div class="flex-1">
+                        <h1 class="text-2xl md:text-3xl font-extrabold text-gray-900">🎧 RadioGG</h1>
+                        <p class="mt-1 text-sm text-gray-600">Live streaming radio — same track for all listeners</p>
+                    </div>
+                    <div class="hidden sm:block">
+                        <div class="text-sm text-gray-500">Stream</div>
+                        <div class="text-lg font-semibold text-indigo-600">Live</div>
+                    </div>
+                </div>
+
+                <div class="mt-6 grid grid-cols-1 md:grid-cols-3 gap-6 items-center">
+                    <div class="md:col-span-2">
+                        <div class="bg-gray-50 p-4 rounded-lg">
+                            <div class="text-xs text-gray-500">Now Playing</div>
+                            <div id="trackName" class="mt-1 text-sm md:text-base font-medium text-gray-900 truncate">{track_name}</div>
+                            <div id="trackUrl" class="hidden"></div>
+                        </div>
+                    </div>
+
+                    <div class="flex flex-col items-stretch gap-2">
+                        <audio id="player" controls autoplay preload="auto" class="w-full rounded-md">
+                            <source src="/stream" type="audio/mpeg">
+                            Your browser does not support the audio element.
+                        </audio>
+                        <button id="playToggle" class="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700">Play / Retry</button>
+                    </div>
+                </div>
+
+                <p class="mt-6 text-xs text-gray-500">If playback takes a few seconds, click "Play / Retry" to resume. This polls the server for the current track.</p>
             </div>
         </div>
+
+        <script>
+            async function fetchNowPlaying(){
+                try{
+                    const r = await fetch('/nowplaying');
+                    if(!r.ok) return;
+                    const j = await r.json();
+                    const name = j.track_name || 'Loading...';
+                    document.getElementById('trackName').textContent = name;
+                    const player = document.getElementById('player');
+                    // Attempt to play if paused or if track changed
+                    if(j.track_url){
+                        // If the source differs, reload the player
+                        const currentSrc = player.querySelector('source')?.src || '';
+                        if(!currentSrc.endsWith('/stream')){
+                            player.querySelector('source').src = '/stream';
+                            player.load();
+                        }
+                    }
+                    // Try to play (may be blocked by browser autoplay rules)
+                    try{ await player.play(); } catch(e){}
+                }catch(e){
+                    console.debug('nowplaying fetch failed', e);
+                }
+            }
+
+            // Poll every 2.5 seconds
+            fetchNowPlaying();
+            setInterval(fetchNowPlaying, 2500);
+
+            document.getElementById('playToggle').addEventListener('click', async ()=>{
+                const player = document.getElementById('player');
+                if(player.paused){
+                    try{ await player.play(); } catch(e){ console.debug(e); }
+                } else {
+                    player.pause();
+                    player.currentTime = 0;
+                    try{ await player.play(); } catch(e){ console.debug(e); }
+                }
+            });
+        </script>
     </body>
     </html>
     """
+    # Inject track name into the template (avoid f-string to keep braces intact)
+    html_content = html_content.replace("{track_name}", track_name)
     return HTMLResponse(content=html_content)
 
 @app.get("/stream")
@@ -205,6 +223,15 @@ def stream():
             print(f"[ERROR] Streaming error: {e}")
 
     return StreamingResponse(audio_generator(), media_type="audio/mpeg")
+
+
+@app.get('/nowplaying')
+def nowplaying():
+    """Return current track info as JSON for client-side polling."""
+    if CURRENT_TRACK:
+        track_name = CURRENT_TRACK.split('/')[-1]
+        return {"track_name": track_name, "track_url": CURRENT_TRACK}
+    return {"track_name": None, "track_url": None}
 
 # ---------- START THREADS ----------
 threading.Thread(target=sync_loop, daemon=True).start()
